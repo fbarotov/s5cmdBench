@@ -19,19 +19,18 @@ func main() {
 		bucket1 = "s3://s5cmd-test-east"
 		bucket2 = "s3://s5cmd-test-west"
 
-		region1 = "us-east-1"
-		region2 = "us-west-2"
-
-		numOfIter = 5
+		numOfIter = 10
 
 		nano = 1e+9
 	)
 
+	rand.Seed(time.Now().UTC().UnixNano())
+
 	durationS5cmdV100, durationS5cmd, err := compareUploadSpeed(
 		numOfIter,
 		folder,
-		bucket1, region1,
-		bucket2, region2,
+		bucket1,
+		bucket2,
 	)
 	if err != nil {
 		fmt.Println(err)
@@ -46,27 +45,33 @@ func main() {
 	}
 
 	mean1, std1 := stat.MeanStdDev(x1, nil)
-	fmt.Printf(`s5cmd version 1.0.0 10100 file upload speed:
+	mean2, std2 := stat.MeanStdDev(x2, nil)
+
+	fmt.Println("\n", "Uploading 1100 files in batch mode, where each file is 10.1 KB")
+	fmt.Println("number of iterations", numOfIter)
+
+	stat1 := fmt.Sprintf(`s5cmd version 1.0.0 file upload speed (single region):
 							mean: %v sec., 
 							standard deviation: %v
 						`, mean1, std1)
 
-	mean2, std2 := stat.MeanStdDev(x2, nil)
-	fmt.Printf(`s5cmd after adding cross-region transfer, file upload speed:
+	stat2 := fmt.Sprintf(`s5cmd after adding cross-region transfer, file upload speed (two regions):
 							mean: %v sec.,
 							standard deviation: %v
 						`, mean2, std2)
+
+	fmt.Printf("%s\n%s\n", stat1, stat2)
 }
 
 func compareUploadSpeed(
 	numOfIter int,
 	folder string,
-	bucket1, region1 string,
-	bucket2, region2 string,
+	bucket1 string,
+	bucket2 string,
 ) ([]time.Duration, []time.Duration, error) {
 	const (
 		commands1 = "commands.txt"
-		commands2 = "commandsWithRegion.txt"
+		commands2 = "commandsWithTwoRegion.txt"
 
 		exec1 = "./s5cmd_v1.0.0.exe"
 		exec2 = "./s5cmd.exe"
@@ -77,7 +82,6 @@ func compareUploadSpeed(
 	)
 
 	for i := 0; i < numOfIter; i++ {
-
 		pre1 := "/" + randomString(10) + "/"
 		pre2 := "/" + randomString(10) + "/"
 
@@ -103,25 +107,12 @@ func compareUploadSpeed(
 
 		{
 			err := newCommands(commands2, folder, func() string {
-				var (
-					region string
-					path   string
-				)
-
-				rnd := rand.Intn(2)
-				if rnd == 0 {
-					region = region1
-					path = bucket1 + pre2
-				} else {
-					region = region2
-					path = bucket2 + pre2
-				}
+				bucket := [...]string{bucket1, bucket2}[rand.Intn(2)]
 
 				return strings.Join(
 					[]string{
-						fmt.Sprintf("cp --region=%s", region),
-						"%s",
-						fmt.Sprintf("%s\n", path),
+						"cp %s",
+						fmt.Sprintf("%s\n", bucket+pre2),
 					}, " ")
 			})
 			if err != nil {
@@ -193,32 +184,4 @@ func randomString(length int) string {
 		b[i] = symbols[rand.Intn(len(symbols))]
 	}
 	return string(b)
-}
-
-func writeContent(folder string) error {
-	const (
-		numLines = 100
-		lineLen  = 50
-	)
-
-	return filepath.Walk(folder, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return nil
-		}
-
-		f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
-		if err != nil {
-			return err
-		}
-		for i := 0; i < numLines; i++ {
-			_, err := f.WriteString(randomString(lineLen) + "\n")
-			if err != nil {
-				return err
-			}
-		}
-		return f.Close()
-	})
 }
